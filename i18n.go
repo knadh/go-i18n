@@ -8,7 +8,8 @@ package i18n
 import (
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"fmt"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -49,7 +50,7 @@ func New(jsonB []byte) (*I18n, error) {
 // NewFromFile returns a I18n instance with the JSON language map read
 // from the given file.
 func NewFromFile(filepath string) (*I18n, error) {
-	b, err := ioutil.ReadFile(filepath)
+	b, err := os.ReadFile(filepath)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +102,15 @@ func (i *I18n) T(key string) string {
 // Ts returns the translation for the given key similar to vue i18n's t()
 // and substitutes the params in the given map in the translated value.
 // In the language values, the substitutions are represented as: {key}
-// The params and values are received as a pairs of succeeding strings.
+// The params and values are received as a pairs of succeeding values.
 // That is, the number of these arguments should be an even number.
+// Values can be of any type and will be converted to strings using fmt.Sprintf("%v", value).
 // eg: Ts("globals.message.notFound",
 //
 //	"name", "campaigns",
+//	"count", 123,
 //	"error", err)
-func (i *I18n) Ts(key string, params ...string) string {
+func (i *I18n) Ts(key string, params ...any) string {
 	if len(params)%2 != 0 {
 		return key + `: invalid arguments`
 	}
@@ -119,9 +122,15 @@ func (i *I18n) Ts(key string, params ...string) string {
 
 	s = i.getSingular(s)
 	for n := 0; n < len(params); n += 2 {
+		// Convert the key to string.
+		paramKey, ok := params[n].(string)
+		if !ok {
+			paramKey = fmt.Sprintf("%v", params[n])
+		}
+
 		// If there are {params} in the param values, substitute them.
 		val := i.subAllParams(params[n+1])
-		s = strings.ReplaceAll(s, `{`+params[n]+`}`, val)
+		s = strings.ReplaceAll(s, `{`+paramKey+`}`, val)
 	}
 
 	return s
@@ -179,8 +188,15 @@ func (i *I18n) getPlural(s string) string {
 	return strings.TrimSpace(chunks[0])
 }
 
-// subAllParams recursively resolves and replaces all {params} in a string.
-func (i *I18n) subAllParams(s string) string {
+// subAllParams recursively resolves and replaces all {params} in a value.
+// It converts any type to string and then processes nested translations.
+func (i *I18n) subAllParams(v any) string {
+	// Convert any value to string
+	s, ok := v.(string)
+	if !ok {
+		s = fmt.Sprintf("%v", v)
+	}
+
 	if !strings.Contains(s, `{`) {
 		return s
 	}
